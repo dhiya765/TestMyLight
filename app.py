@@ -6,6 +6,8 @@ from datetime import datetime
 from math import sqrt
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+import gspread
+from google.oauth2.service_account import Credentials
 
 # -----------------------
 # Page config
@@ -90,6 +92,28 @@ st.markdown("""
 # -----------------------
 # Load data
 # -----------------------
+@st.cache_resource
+def get_gsheet():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+
+    client = gspread.authorize(creds)
+    spreadsheet = client.open(st.secrets["sheets"]["spreadsheet_name"])
+    worksheet = spreadsheet.worksheet(st.secrets["sheets"]["worksheet"])
+    return worksheet
+
+
+def append_response(row_dict):
+    worksheet = get_gsheet()
+    worksheet.append_row(list(row_dict.values()))
+
 @st.cache_data
 def load_data():
     file = "PreparedDatasetATRFTIR.xlsx"
@@ -423,12 +447,24 @@ elif page == "Interpret":
                 "interpretation": interpretation
             }
 
-            pd.DataFrame([row]).to_csv(
-                "responses.csv",
-                mode="a",
-                header=not pd.io.common.file_exists("responses.csv"),
-                index=False
-            )
+            append_response(row)
+            row = {
+                   "time": datetime.now().isoformat(),
+                   "group": group_id,
+                    "dataset": dataset_name,
+                    "page": "Interpret",
+                    "sample": selected_sample,
+                    "comparison_sample": comparison_sample,
+                    "important_region": f"{region_start}-{region_end} cm^-1",
+                    "suspected_groups": "; ".join(suspected_groups),
+                    "confidence": confidence,
+                    "interpretation": interpretation,
+                    "target_sample": "",
+                    "predicted_class": "",
+                    "reasoning": "",
+                    "pc1": "",
+                    "pc2": ""
+            }
 
             st.success("Interpretation saved.")
 
@@ -555,12 +591,24 @@ elif page == "Classify":
                     "pc2": float(target_row["PC2"])
                 }
 
-                pd.DataFrame([row]).to_csv(
-                    "responses.csv",
-                    mode="a",
-                    header=not pd.io.common.file_exists("responses.csv"),
-                    index=False
-                )
+                append_response(row)
+                row = {
+                        "time": datetime.now().isoformat(),
+                        "group": group_id,
+                        "dataset": dataset_name,
+                        "page": "Classify",
+                        "sample": "",
+                        "comparison_sample": "",
+                        "important_region": "",
+                        "suspected_groups": "",
+                        "confidence": confidence,
+                        "interpretation": "",
+                        "target_sample": target_sample,
+                        "predicted_class": predicted_class,
+                        "reasoning": reasoning,
+                        "pc1": float(target_row["PC1"]),
+                        "pc2": float(target_row["PC2"])
+                }
 
                 st.success("Classification saved.")
 
@@ -571,7 +619,14 @@ elif page == "Dashboard":
     st.header("Instructor Dashboard")
 
     try:
-        df_resp = pd.read_csv("responses.csv")
-        st.dataframe(df_resp, use_container_width=True)
-    except:
-        st.info("No responses yet.")
+        worksheet = get_gsheet()
+        records = worksheet.get_all_records()
+        df_resp = pd.DataFrame(records)
+
+        if df_resp.empty:
+            st.info("No responses yet.")
+        else:
+            st.dataframe(df_resp, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Could not load Google Sheet data: {e}")
