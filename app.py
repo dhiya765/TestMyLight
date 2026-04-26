@@ -111,8 +111,22 @@ def get_gsheet():
 
 
 def append_response(row_dict):
-    worksheet = get_gsheet()
-    worksheet.append_row(list(row_dict.values()))
+    try:
+        worksheet = get_gsheet()
+
+        clean_row = []
+        for v in row_dict.values():
+            if v is None:
+                clean_row.append("")
+            else:
+                clean_row.append(str(v))
+
+        worksheet.append_row(clean_row)
+        st.success("Saved successfully ✅")
+
+    except Exception as e:
+        st.warning("Could not save, but app still works 👍")
+        st.write(e)
 
 @st.cache_data
 def load_data():
